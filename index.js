@@ -21,6 +21,23 @@ db.connect((err) => {
     console.error("❌ DB Connection Failed:", err.message);
   } else {
     console.log("✅ Connected to MySQL!");
+
+    const createUsersTable = `
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        password VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+      `;
+
+    db.query(createUsersTable, (err, result) => {
+      if (err) {
+        console.error("❌ Error creating users table:", err.message);
+      } else {
+        console.log("✅ Users table is ready!");
+      }
+    });
   }
 });
 
