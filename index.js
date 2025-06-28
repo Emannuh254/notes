@@ -7,11 +7,13 @@ const bcrypt = require("bcrypt");
 const app = express();
 
 // ✅ Enhanced CORS for frontend (even from GitHub Pages)
-app.use(cors({
-  origin: "*", // Or set your GitHub Pages URL
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type"],
-}));
+app.use(
+  cors({
+    origin: "*", // Or set your GitHub Pages URL
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type"],
+  })
+);
 
 app.use(express.json());
 
@@ -28,7 +30,8 @@ const db = mysql.createPool({
 });
 
 // ✅ Create table with Google support
-db.query(`
+db.query(
+  `
   CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255),
@@ -37,13 +40,15 @@ db.query(`
     is_google BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )
-`, (err) => {
-  if (err) {
-    console.error("❌ Error creating users table:", err.message);
-  } else {
-    console.log("✅ Users table is ready!");
+`,
+  (err) => {
+    if (err) {
+      console.error("❌ Error creating users table:", err.message);
+    } else {
+      console.log("✅ Users table is ready!");
+    }
   }
-});
+);
 
 // ✅ Health check
 app.get("/", (req, res) => {
@@ -81,7 +86,8 @@ app.post("/login", (req, res) => {
   const q = "SELECT * FROM users WHERE email = ?";
   db.query(q, [email], async (err, results) => {
     if (err) return res.status(500).json({ error: "Server error" });
-    if (results.length === 0) return res.status(401).json({ error: "User not found" });
+    if (results.length === 0)
+      return res.status(401).json({ error: "User not found" });
 
     const user = results[0];
 
@@ -95,7 +101,7 @@ app.post("/login", (req, res) => {
 
     res.json({
       message: "✅ Login successful",
-      user: { id: user.id, email: user.email }
+      user: { id: user.id, email: user.email },
     });
   });
 });
