@@ -1,0 +1,11 @@
+services:
+  - type: pserv
+    name: flipmarket-db
+    env: docker
+    plan: free
+    autoDeploy: false
+    envVars:
+      - key: MYSQL_ROOT_PASSWORD
+        value: nfsmostwanted2005
+      - key: MYSQL_DATABASE
+        value: flipmarket

@@ -1,0 +1,6 @@
+FROM mysql:8.0
+
+ENV MYSQL_DATABASE=flipmarket
+ENV MYSQL_ROOT_PASSWORD=nfsmostwanted2005
+
+EXPOSE 3306
