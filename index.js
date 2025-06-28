@@ -24,7 +24,12 @@ db.connect((err) => {
   }
 });
 
-// Routes
+// ✅ Health check route
+app.get("/", (req, res) => {
+  res.send("✅ FlipMarket backend is alive");
+});
+
+// Signup route
 app.post("/signup", (req, res) => {
   const { email, password } = req.body;
   const q = "INSERT INTO users (email, password) VALUES (?, ?)";
