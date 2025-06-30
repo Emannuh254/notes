@@ -82,7 +82,7 @@ app.post("/signup", async (req, res) => {
   if (!name || !email || !password)
     return res.status(400).json({ error: "All fields are required" });
 
-  if (!validator.isAlpha(name.replace(" ", "")))
+  if (!validator.isAlpha(name.replace(/\s/g, "")))
     return res.status(400).json({ error: "Name must contain only letters" });
 
   if (!validator.isEmail(email))
