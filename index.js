@@ -14,7 +14,8 @@ const app = express();
 const JWT_SECRET = process.env.JWT_SECRET || "super_secret_key";
 
 // Frontend URL to enable CORS properly
-const FRONTEND_URL = process.env.CORS_ORIGIN || "https://emannuh254.github.io";
+const FRONTEND_URL =
+  process.env.CORS_ORIGIN || "https://emannuh254.github.io/login-page/";
 
 // Enable CORS with the specified frontend origin
 app.use(
