@@ -6,10 +6,10 @@ const bcrypt = require("bcrypt");
 
 const app = express();
 
-// ✅ Enhanced CORS for frontend (even from GitHub Pages)
+// ✅ CORS with whitelist from environment
 app.use(
   cors({
-    origin: "*", // Or set your GitHub Pages URL
+    origin: process.env.CORS_ORIGIN || "*",
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type"],
   })
@@ -29,7 +29,7 @@ const db = mysql.createPool({
   queueLimit: 0,
 });
 
-// ✅ Create table with Google support
+// ✅ Create `users` table if it doesn't exist
 db.query(
   `
   CREATE TABLE IF NOT EXISTS users (
@@ -55,55 +55,77 @@ app.get("/", (req, res) => {
   res.send("✅ FlipMarket backend is alive");
 });
 
-// ✅ Signup with email & password
+// ✅ Signup Route with Duplicate Email Check
 app.post("/signup", async (req, res) => {
   const { name, email, password } = req.body;
 
   if (!name || !email || !password) {
-    return res.status(400).json({ error: "Missing name, email, or password" });
+    return res.status(400).json({ error: "All fields are required" });
   }
 
-  try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const query = "INSERT INTO users (name, email, password) VALUES (?, ?, ?)";
-    db.query(query, [name, email, hashedPassword], (err) => {
-      if (err) {
-        console.error("❌ Signup error:", err.message);
-        return res.status(500).json({ error: "Signup failed" });
-      }
-      res.json({ message: "✅ Signup successful!" });
-    });
-  } catch (err) {
-    console.error("❌ Hashing error:", err.message);
-    res.status(500).json({ error: "Server error" });
+  // Disallow two-word names (as per your requirement)
+  if (name.trim().split(" ").length > 1) {
+    return res.status(400).json({ error: "Only first name is allowed" });
   }
+
+  db.query(
+    "SELECT id FROM users WHERE email = ?",
+    [email],
+    async (err, results) => {
+      if (err) return res.status(500).json({ error: "Database error" });
+
+      if (results.length > 0) {
+        return res.status(409).json({ message: "Email already exists" });
+      }
+
+      try {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const query =
+          "INSERT INTO users (name, email, password) VALUES (?, ?, ?)";
+        db.query(query, [name, email, hashedPassword], (err) => {
+          if (err) {
+            console.error("❌ Signup error:", err.message);
+            return res.status(500).json({ error: "Signup failed" });
+          }
+          res.json({ message: "✅ Signup successful" });
+        });
+      } catch (err) {
+        console.error("❌ Hashing error:", err.message);
+        res.status(500).json({ error: "Server error" });
+      }
+    }
+  );
 });
 
-// ✅ Login with email & password
+// ✅ Login with Email & Password
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
 
-  const q = "SELECT * FROM users WHERE email = ?";
-  db.query(q, [email], async (err, results) => {
-    if (err) return res.status(500).json({ error: "Server error" });
-    if (results.length === 0)
-      return res.status(401).json({ error: "User not found" });
+  db.query(
+    "SELECT * FROM users WHERE email = ?",
+    [email],
+    async (err, results) => {
+      if (err) return res.status(500).json({ error: "Database error" });
 
-    const user = results[0];
+      if (results.length === 0) {
+        return res.status(401).json({ error: "User not found" });
+      }
 
-    // If user is a Google user, they shouldn’t login with password
-    if (user.is_google) {
-      return res.status(403).json({ error: "Use Google Sign-In instead" });
+      const user = results[0];
+
+      if (user.is_google) {
+        return res.status(403).json({ error: "Use Google Sign-In instead" });
+      }
+
+      const isMatch = await bcrypt.compare(password, user.password);
+      if (!isMatch) return res.status(401).json({ error: "Invalid password" });
+
+      res.json({
+        message: "✅ Login successful",
+        user: { id: user.id, email: user.email },
+      });
     }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ error: "Invalid password" });
-
-    res.json({
-      message: "✅ Login successful",
-      user: { id: user.id, email: user.email },
-    });
-  });
+  );
 });
 
 // ✅ Google Sign-In
