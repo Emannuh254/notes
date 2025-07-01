@@ -5,15 +5,12 @@ const mysql = require("mysql2");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const validator = require("validator");
-const rateLimit = require("express-rate-limit");
-const nodemailer = require("nodemailer");
 
 const app = express();
 const JWT_SECRET = process.env.JWT_SECRET || "super_secret_key";
+const FRONTEND_URL = process.env.CORS_ORIGIN || "https://emannuh254.github.io";
 
-const FRONTEND_URL =
-  process.env.CORS_ORIGIN || "https://emannuh254.github.io/login-page/";
-
+// Middleware
 app.use(
   cors({
     origin: FRONTEND_URL,
@@ -21,9 +18,9 @@ app.use(
     allowedHeaders: ["Content-Type"],
   })
 );
-
 app.use(express.json());
 
+// MySQL DB connection
 const db = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -34,6 +31,7 @@ const db = mysql.createPool({
   connectionLimit: 10,
 });
 
+// Create users table if not exists
 db.query(
   `CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -41,8 +39,6 @@ db.query(
     email VARCHAR(255) NOT NULL UNIQUE,
     password VARCHAR(255),
     is_google BOOLEAN DEFAULT FALSE,
-    reset_token VARCHAR(255),
-    token_expires DATETIME,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`,
   (err) => {
@@ -50,76 +46,53 @@ db.query(
     else console.log("✅ Users table ready!");
   }
 );
-// Ensure google_users table exists
-db.query(
-  `CREATE TABLE IF NOT EXISTS google_users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255),
-    email VARCHAR(255) NOT NULL UNIQUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-  )`,
-  (err) => {
-    if (err)
-      console.error("❌ Error creating google_users table:", err.message);
-    else console.log("✅ Google Users table ready!");
-  }
-);
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 50,
-  message: { error: "Too many requests. Try again later." },
-});
-app.use("/login", authLimiter);
-app.use("/signup", authLimiter);
-
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
-
+// Routes
 app.get("/", (req, res) => {
-  res.send("✅ FlipMarket backend is alive");
+  res.send("✅ FlipMarket backend is running");
 });
 
-// ------------------- SIGNUP -------------------
+// Sign Up
 app.post("/signup", async (req, res) => {
   const { name, email, password } = req.body;
 
   if (!name || !email || !password)
     return res.status(400).json({ error: "All fields are required" });
 
+  if (!validator.isEmail(email))
+    return res.status(400).json({ error: "Invalid email" });
+
+  if (!validator.isLength(password, { min: 6 }))
+    return res
+      .status(400)
+      .json({ error: "Password must be at least 6 characters" });
+
   db.query(
     "SELECT id FROM users WHERE email = ?",
     [email],
     async (err, results) => {
-      if (err) return res.status(500).json({ error: "Server error" });
-
-      if (results.length > 0) {
-        return res.status(409).json({ error: "User already exists" }); // 👈 clear message for frontend toast
-      }
+      if (err) return res.status(500).json({ error: "Database error" });
+      if (results.length > 0)
+        return res.status(409).json({ error: "Email already exists" });
 
       try {
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashed = await bcrypt.hash(password, 10);
         db.query(
           "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
-          [name, email, hashedPassword],
+          [name, email, hashed],
           (err) => {
             if (err) return res.status(500).json({ error: "Signup failed" });
-            return res.json({ message: "Signed up successfully" }); // 👈 success toast trigger
+            res.json({ message: "User created successfully" });
           }
         );
-      } catch (error) {
-        return res.status(500).json({ error: "Server error" });
+      } catch {
+        res.status(500).json({ error: "Server error" });
       }
     }
   );
 });
 
-// ------------------- LOGIN -------------------
+// Login
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
 
@@ -127,22 +100,25 @@ app.post("/login", (req, res) => {
     "SELECT * FROM users WHERE email = ?",
     [email],
     async (err, results) => {
-      if (err) return res.status(500).json({ error: "Server error" });
+      if (err) return res.status(500).json({ error: "Database error" });
 
       const user = results[0];
-      if (!user)
-        return res.status(401).json({ error: "Invalid email or password" }); // 👈 for toast
+      if (!user) return res.status(401).json({ error: "User not found" });
+
+      if (user.is_google)
+        return res
+          .status(403)
+          .json({ error: "Use Google Sign-In for this account" });
 
       const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch)
-        return res.status(401).json({ error: "Invalid email or password" }); // 👈 for toast
+      if (!isMatch) return res.status(401).json({ error: "Invalid password" });
 
       const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, {
         expiresIn: "7d",
       });
 
-      return res.json({
-        message: "Login successful", // 👈 for toast
+      res.json({
+        message: "Login successful",
         token,
         user: { name: user.name, email: user.email },
       });
@@ -150,8 +126,7 @@ app.post("/login", (req, res) => {
   );
 });
 
-// ------------------- GOOGLE SIGN-IN -------------------
-// ✅ KEEP THIS ONE
+// Google Sign-In
 app.post("/google-signin", (req, res) => {
   const { name, email } = req.body;
 
@@ -162,7 +137,6 @@ app.post("/google-signin", (req, res) => {
     if (err) return res.status(500).json({ error: "Database error" });
 
     if (results.length === 0) {
-      // No user exists — insert new Google user
       db.query(
         "INSERT INTO users (name, email, is_google) VALUES (?, ?, TRUE)",
         [name, email],
@@ -173,7 +147,7 @@ app.post("/google-signin", (req, res) => {
               .json({ error: "Failed to insert Google user" });
 
           const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
-          return res.json({
+          res.json({
             message: "Google user created",
             token,
             user: { name, email },
@@ -181,7 +155,6 @@ app.post("/google-signin", (req, res) => {
         }
       );
     } else {
-      // User exists — allow upgrade to Google user
       db.query(
         "UPDATE users SET name = ?, is_google = TRUE WHERE email = ?",
         [name, email],
@@ -192,7 +165,7 @@ app.post("/google-signin", (req, res) => {
               .json({ error: "Failed to update Google user" });
 
           const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
-          return res.json({
+          res.json({
             message: "Google user updated",
             token,
             user: { name, email },
@@ -203,66 +176,18 @@ app.post("/google-signin", (req, res) => {
   });
 });
 
-// ------------------- FORGOT PASSWORD -------------------
-app.post("/forgot-password", (req, res) => {
-  const { email } = req.body;
+// Check Email (used by frontend before login)
+app.get("/check-email", (req, res) => {
+  const email = req.query.email;
+  if (!validator.isEmail(email)) return res.json({ exists: false });
 
-  if (!validator.isEmail(email))
-    return res.status(400).json({ error: "Invalid email" });
-
-  const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "1h" });
-  const expireTime = new Date(Date.now() + 3600000);
-
-  db.query(
-    "UPDATE users SET reset_token = ?, token_expires = ? WHERE email = ?",
-    [token, expireTime, email],
-    (err, result) => {
-      if (err) return res.status(500).json({ error: "Database error" });
-      if (result.affectedRows === 0)
-        return res.status(404).json({ error: "User not found" });
-
-      const resetLink = `${FRONTEND_URL}/reset-password.html?token=${token}`;
-      const mailOptions = {
-        from: process.env.EMAIL_USER,
-        to: email,
-        subject: "Reset your password",
-        html: `<p>Click <a href='${resetLink}'>here</a> to reset your password. Link expires in 1 hour.</p>`,
-      };
-
-      transporter.sendMail(mailOptions, (err) => {
-        if (err) return res.status(500).json({ error: "Email failed" });
-        res.json({ message: "Reset link sent" });
-      });
-    }
-  );
+  db.query("SELECT id FROM users WHERE email = ?", [email], (err, results) => {
+    if (err || results.length === 0) return res.json({ exists: false });
+    res.json({ exists: true });
+  });
 });
 
-// ------------------- RESET PASSWORD -------------------
-app.post("/reset-password", async (req, res) => {
-  const { token, newPassword } = req.body;
-
-  if (!token || !newPassword)
-    return res.status(400).json({ error: "Missing token or password" });
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    const hashed = await bcrypt.hash(newPassword, 10);
-
-    db.query(
-      "UPDATE users SET password = ?, reset_token = NULL, token_expires = NULL WHERE email = ? AND reset_token = ?",
-      [hashed, decoded.email, token],
-      (err, result) => {
-        if (err) return res.status(500).json({ error: "Database error" });
-        if (result.affectedRows === 0)
-          return res.status(400).json({ error: "Invalid or expired token" });
-        res.json({ message: "Password updated" });
-      }
-    );
-  } catch {
-    res.status(400).json({ error: "Invalid or expired token" });
-  }
-});
-
+// Start server
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
