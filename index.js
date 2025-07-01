@@ -124,59 +124,6 @@ app.post("/login", (req, res) => {
     }
   );
 });
-
-// Google Sign-In (automatic login or creation)
-app.post("/google-signin", (req, res) => {
-  const { name, email } = req.body;
-
-  if (!name || !email)
-    return res.status(400).json({ error: "Missing name or email" });
-
-  db.query("SELECT * FROM users WHERE email = ?", [email], (err, results) => {
-    if (err) return res.status(500).json({ error: "Database error" });
-
-    if (results.length === 0) {
-      // New user
-      db.query(
-        "INSERT INTO users (name, email, is_google) VALUES (?, ?, TRUE)",
-        [name, email],
-        (err) => {
-          if (err)
-            return res
-              .status(500)
-              .json({ error: "Failed to insert Google user" });
-
-          const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
-          res.json({
-            message: "Google user created",
-            token,
-            user: { name, email },
-          });
-        }
-      );
-    } else {
-      // Existing user (manual or google) — update and log in
-      db.query(
-        "UPDATE users SET name = ?, is_google = TRUE WHERE email = ?",
-        [name, email],
-        (err) => {
-          if (err)
-            return res
-              .status(500)
-              .json({ error: "Failed to update Google user" });
-
-          const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
-          res.json({
-            message: "Google user signed in",
-            token,
-            user: { name, email },
-          });
-        }
-      );
-    }
-  });
-});
-
 // Check if email exists (for frontend toast)
 app.get("/check-email", (req, res) => {
   const email = req.query.email;
@@ -186,6 +133,59 @@ app.get("/check-email", (req, res) => {
     if (err || results.length === 0) return res.json({ exists: false });
     res.json({ exists: true });
   });
+});
+
+// Google Sign-In (only allows login for existing users)
+app.post("/google-signin", (req, res) => {
+  const { name, email } = req.body;
+  const normalizedEmail = email?.toLowerCase().trim();
+
+  if (!name || !normalizedEmail)
+    return res.status(400).json({ error: "Missing name or email" });
+
+  db.query(
+    "SELECT * FROM users WHERE email = ?",
+    [normalizedEmail],
+    (err, results) => {
+      if (err) return res.status(500).json({ error: "Database error" });
+
+      if (results.length === 0) {
+        return res
+          .status(404)
+          .json({ error: "Please create an account first" });
+      }
+
+      const user = results[0];
+
+      // Optionally, update the name and mark as Google user
+      db.query(
+        "UPDATE users SET name = ?, is_google = TRUE WHERE email = ?",
+        [name, normalizedEmail],
+        (err) => {
+          if (err) {
+            console.error("Update error:", err);
+            return res
+              .status(500)
+              .json({ error: "Failed to link Google login" });
+          }
+
+          const token = jwt.sign(
+            { id: user.id, email: normalizedEmail },
+            JWT_SECRET,
+            {
+              expiresIn: "7d",
+            }
+          );
+
+          res.json({
+            message: "Google login successful",
+            token,
+            user: { name, email: normalizedEmail },
+          });
+        }
+      );
+    }
+  );
 });
 
 // Start server
