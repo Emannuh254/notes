@@ -50,6 +50,20 @@ db.query(
     else console.log("✅ Users table ready!");
   }
 );
+// Ensure google_users table exists
+db.query(
+  `CREATE TABLE IF NOT EXISTS google_users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255),
+    email VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )`,
+  (err) => {
+    if (err)
+      console.error("❌ Error creating google_users table:", err.message);
+    else console.log("✅ Google Users table ready!");
+  }
+);
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -74,40 +88,32 @@ app.get("/", (req, res) => {
 // ------------------- SIGNUP -------------------
 app.post("/signup", async (req, res) => {
   const { name, email, password } = req.body;
+
   if (!name || !email || !password)
     return res.status(400).json({ error: "All fields are required" });
-
-  if (!validator.isAlpha(name.replace(/\s/g, "")))
-    return res.status(400).json({ error: "Name must contain only letters" });
-
-  if (!validator.isEmail(email))
-    return res.status(400).json({ error: "Invalid email format" });
-
-  if (!validator.isLength(password, { min: 6 }))
-    return res
-      .status(400)
-      .json({ error: "Password must be at least 6 characters" });
 
   db.query(
     "SELECT id FROM users WHERE email = ?",
     [email],
     async (err, results) => {
-      if (err) return res.status(500).json({ error: "Database error" });
-      if (results.length > 0)
-        return res.status(409).json({ message: "Email already exists" });
+      if (err) return res.status(500).json({ error: "Server error" });
+
+      if (results.length > 0) {
+        return res.status(409).json({ error: "User already exists" }); // 👈 clear message for frontend toast
+      }
 
       try {
-        const hashed = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcrypt.hash(password, 10);
         db.query(
           "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
-          [name, email, hashed],
+          [name, email, hashedPassword],
           (err) => {
             if (err) return res.status(500).json({ error: "Signup failed" });
-            res.json({ message: "User created" });
+            return res.json({ message: "Signed up successfully" }); // 👈 success toast trigger
           }
         );
-      } catch {
-        res.status(500).json({ error: "Server error" });
+      } catch (error) {
+        return res.status(500).json({ error: "Server error" });
       }
     }
   );
@@ -121,25 +127,22 @@ app.post("/login", (req, res) => {
     "SELECT * FROM users WHERE email = ?",
     [email],
     async (err, results) => {
-      if (err) return res.status(500).json({ error: "Database error" });
+      if (err) return res.status(500).json({ error: "Server error" });
 
       const user = results[0];
-      if (!user) return res.status(401).json({ error: "User not found" });
-
-      if (user.is_google)
-        return res.status(403).json({
-          error: "Account created via Google. Please use Google Sign-In.",
-        });
+      if (!user)
+        return res.status(401).json({ error: "Invalid email or password" }); // 👈 for toast
 
       const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch) return res.status(401).json({ error: "Invalid password" });
+      if (!isMatch)
+        return res.status(401).json({ error: "Invalid email or password" }); // 👈 for toast
 
       const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, {
         expiresIn: "7d",
       });
 
-      res.json({
-        message: "Login successful",
+      return res.json({
+        message: "Login successful", // 👈 for toast
         token,
         user: { name: user.name, email: user.email },
       });
