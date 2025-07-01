@@ -31,7 +31,7 @@ const db = mysql.createPool({
   connectionLimit: 10,
 });
 
-// Create users table if not exists
+// Create users table if it doesn't exist
 db.query(
   `CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -47,15 +47,14 @@ db.query(
   }
 );
 
-// Routes
+// Root
 app.get("/", (req, res) => {
   res.send("✅ FlipMarket backend is running");
 });
 
-// Sign Up
+// Signup
 app.post("/signup", async (req, res) => {
   const { name, email, password } = req.body;
-
   if (!name || !email || !password)
     return res.status(400).json({ error: "All fields are required" });
 
@@ -126,7 +125,7 @@ app.post("/login", (req, res) => {
   );
 });
 
-// Google Sign-In
+// Google Sign-In (automatic login or creation)
 app.post("/google-signin", (req, res) => {
   const { name, email } = req.body;
 
@@ -137,6 +136,7 @@ app.post("/google-signin", (req, res) => {
     if (err) return res.status(500).json({ error: "Database error" });
 
     if (results.length === 0) {
+      // New user
       db.query(
         "INSERT INTO users (name, email, is_google) VALUES (?, ?, TRUE)",
         [name, email],
@@ -155,6 +155,7 @@ app.post("/google-signin", (req, res) => {
         }
       );
     } else {
+      // Existing user (manual or google) — update and log in
       db.query(
         "UPDATE users SET name = ?, is_google = TRUE WHERE email = ?",
         [name, email],
@@ -166,7 +167,7 @@ app.post("/google-signin", (req, res) => {
 
           const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
           res.json({
-            message: "Google user updated",
+            message: "Google user signed in",
             token,
             user: { name, email },
           });
@@ -176,7 +177,7 @@ app.post("/google-signin", (req, res) => {
   });
 });
 
-// Check Email (used by frontend before login)
+// Check if email exists (for frontend toast)
 app.get("/check-email", (req, res) => {
   const email = req.query.email;
   if (!validator.isEmail(email)) return res.json({ exists: false });
