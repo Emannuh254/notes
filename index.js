@@ -148,59 +148,56 @@ app.post("/login", (req, res) => {
 });
 
 // ------------------- GOOGLE SIGN-IN -------------------
+// ✅ KEEP THIS ONE
 app.post("/google-signin", (req, res) => {
   const { name, email } = req.body;
 
   if (!name || !email)
     return res.status(400).json({ error: "Missing name or email" });
 
-  db.query(
-    "SELECT * FROM users WHERE email = ?",
-    [email],
-    async (err, results) => {
-      if (err) return res.status(500).json({ error: "Database error" });
+  db.query("SELECT * FROM users WHERE email = ?", [email], (err, results) => {
+    if (err) return res.status(500).json({ error: "Database error" });
 
-      if (results.length === 0) {
-        db.query(
-          "INSERT INTO users (name, email, password, is_google) VALUES (?, ?, ?, TRUE)",
-          [name, email, await bcrypt.hash("GOOGLE_AUTH", 10)],
-          (err) => {
-            if (err)
-              return res
-                .status(500)
-                .json({ error: "Google user insert failed" });
+    if (results.length === 0) {
+      // No user exists — insert new Google user
+      db.query(
+        "INSERT INTO users (name, email, is_google) VALUES (?, ?, TRUE)",
+        [name, email],
+        (err) => {
+          if (err)
+            return res
+              .status(500)
+              .json({ error: "Failed to insert Google user" });
 
-            const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
+          const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
+          return res.json({
+            message: "Google user created",
+            token,
+            user: { name, email },
+          });
+        }
+      );
+    } else {
+      // User exists — allow upgrade to Google user
+      db.query(
+        "UPDATE users SET name = ?, is_google = TRUE WHERE email = ?",
+        [name, email],
+        (err) => {
+          if (err)
+            return res
+              .status(500)
+              .json({ error: "Failed to update Google user" });
 
-            res.json({
-              message: "Google user created",
-              token,
-              user: { name, email },
-            });
-          }
-        );
-      } else {
-        db.query(
-          "UPDATE users SET name = ?, is_google = TRUE WHERE email = ?",
-          [name, email],
-          (err) => {
-            if (err)
-              return res
-                .status(500)
-                .json({ error: "Google user update failed" });
-
-            const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
-
-            res.json({
-              message: "Google user updated",
-              token,
-              user: { name, email },
-            });
-          }
-        );
-      }
+          const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
+          return res.json({
+            message: "Google user updated",
+            token,
+            user: { name, email },
+          });
+        }
+      );
     }
-  );
+  });
 });
 
 // ------------------- FORGOT PASSWORD -------------------
@@ -266,54 +263,4 @@ app.post("/reset-password", async (req, res) => {
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-});
-app.post("/google-signin", (req, res) => {
-  const { name, email } = req.body;
-
-  if (!name || !email)
-    return res.status(400).json({ error: "Missing name or email" });
-
-  db.query("SELECT * FROM users WHERE email = ?", [email], (err, results) => {
-    if (err) return res.status(500).json({ error: "Database error" });
-
-    if (results.length === 0) {
-      // No user exists — insert new Google user
-      db.query(
-        "INSERT INTO users (name, email, is_google) VALUES (?, ?, TRUE)",
-        [name, email],
-        (err) => {
-          if (err)
-            return res
-              .status(500)
-              .json({ error: "Failed to insert Google user" });
-
-          const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
-          return res.json({
-            message: "Google user created",
-            token,
-            user: { name, email },
-          });
-        }
-      );
-    } else {
-      // User exists — allow upgrade to Google user
-      db.query(
-        "UPDATE users SET name = ?, is_google = TRUE WHERE email = ?",
-        [name, email],
-        (err) => {
-          if (err)
-            return res
-              .status(500)
-              .json({ error: "Failed to update Google user" });
-
-          const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "7d" });
-          return res.json({
-            message: "Google user updated",
-            token,
-            user: { name, email },
-          });
-        }
-      );
-    }
-  });
 });
